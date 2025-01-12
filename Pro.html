@@ -14,7 +14,7 @@
             color: #ffffff;
             font-family: 'Arial', sans-serif;
             text-align: center;
-            position: relative; /* Make the body a positioned container for absolute positioning of the spinner */
+            position: relative;
         }
         .login-container {
             width: 80%;
@@ -24,7 +24,7 @@
             background: rgba(255, 255, 255, 0.1);
             box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
             position: relative;
-            z-index: 2; /* Ensure it stays above the spinner */
+            z-index: 2;
         }
         h1 {
             font-size: 2em;
@@ -52,36 +52,22 @@
             font-size: 1.2em;
         }
         .content {
-            display: none; /* Hidden by default, shown on successful login */
+            display: none;
             text-align: center;
             color: #ffffff;
         }
-        .content h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }
-        .content p {
-            font-size: 1.2em;
-            margin: 10px 0;
-        }
-        .last-updated {
-            font-size: 0.8em;
-            color: red;
-            margin-top: 20px;
-        }
-        /* Loading spinner styles */
         .spinner {
             display: none;
             position: absolute;
             top: 43%;
             left: 45%;
             transform: translate(-50%, -50%);
-            border: 4px solid rgba(255, 255, 255, 0.3); /* Smaller border */
-            border-top: 4px solid #ffffff; /* Smaller border */
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #ffffff;
             border-radius: 50%;
-            width: 50px; /* Reduced size */
-            height: 50px; /* Reduced size */
-            animation: spin 0.6s linear infinite; /* Faster spinning animation */
+            width: 50px; 
+            height: 50px; 
+            animation: spin 0.6s linear infinite;
         }
         @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -103,14 +89,36 @@
         <p>The project files are still not uploaded.</p>
         <p>I am currently busy and do not know the exact time or day for the update.</p>
         <p>Thank you for your patience!</p>
-        <p class="last-updated">Last updated: Jan 11, 2025</p>
     </div>
 
     <script>
-        const encodedPasswordArray = [97, 100, 109, 105, 110, 49, 50, 51];
+        const encodedPasswordArray = [97, 100, 109, 105, 110, 49, 50, 51]; // Replace with your password encoding logic
+        let incorrectAttempts = 0;
+        const MAX_ATTEMPTS = 10;
+        const MAX_TRIES_BEFORE_LOCK = 5;
+        const LOCK_TIME_MINUTES = 1 * 60 * 1000; // 1 minute in milliseconds
+        const LOCKOUT_PERIOD_24HRS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+        // Check if the user is locked out
+        function checkLockout() {
+            const lockedTime = localStorage.getItem("lockoutExpire");
+            const currentTime = new Date().getTime();
+
+            if (lockedTime && currentTime < lockedTime) {
+                const remainingTime = Math.ceil((lockedTime - currentTime) / 1000);
+                return { locked: true, remainingTime };
+            } else {
+                localStorage.removeItem("lockoutExpire");
+                return { locked: false };
+            }
+        }
 
         function decodePassword() {
             return String.fromCharCode(...encodedPasswordArray);
+        }
+
+        function vibrate() {
+            navigator.vibrate(500); // 500ms vibration duration
         }
 
         function checkPassword() {
@@ -120,24 +128,64 @@
             const content = document.getElementById('content');
             const spinner = document.getElementById('spinner');
 
-            // Show the spinner
+            // Check if the user is locked out
+            const lockoutStatus = checkLockout();
+            if (lockoutStatus.locked) {
+                message.textContent = `You are temporarily locked out. Try again in ${lockoutStatus.remainingTime} seconds.`;
+                message.style.color = 'red';
+                return;
+            }
+
             spinner.style.display = 'block';
 
-            // Simulate loading time (can be removed when connected to an actual backend)
             setTimeout(() => {
                 if (passwordInput === decodePassword()) {
-                    message.textContent = ''; // Clear any previous messages
+                    message.textContent = ''; 
                     loginContainer.style.display = 'none'; 
                     content.style.display = 'block'; 
+                    incorrectAttempts = 0; // Reset attempts on successful login
+                    localStorage.removeItem("attempts"); // Clear attempts on successful login
                 } else {
-                    message.textContent = 'Oops, incorrect!';
-                    message.style.color = 'red';
+                    incorrectAttempts++;
+                    if (incorrectAttempts === MAX_ATTEMPTS) {
+                        message.textContent = "For security purposes, you can no longer enter another password. You've reached the 10 maximum password tries. Try again after 24 hours.";
+                        message.style.color = 'red';
+                        localStorage.setItem("lockoutExpire", new Date().getTime() + LOCKOUT_PERIOD_24HRS);
+                        incorrectAttempts = 0; // Reset after reaching max attempts
+                    } else {
+                        if (incorrectAttempts === MAX_TRIES_BEFORE_LOCK) {
+                            const lockoutExpireTime = new Date().getTime() + LOCK_TIME_MINUTES;
+                            localStorage.setItem("lockoutExpire", lockoutExpireTime); // Set lockout
+                            message.textContent = "You are temporarily locked out. Try again in 1 minute.";
+                        } else {
+                            const attemptsRemaining = MAX_ATTEMPTS - incorrectAttempts;
+                            message.textContent = `Oops, incorrect! ${attemptsRemaining} Attempts remaining.`;
+                            message.style.color = 'red';
+                            vibrate();
+                        }
+                    }
                 }
 
-                // Hide the spinner after checking the password
+                // Update attempts in local storage
+                localStorage.setItem("attempts", incorrectAttempts);
                 spinner.style.display = 'none';
-            }, 1000); // Simulates a 1 second loading time
+            }, 1000);
         }
+
+        // Immediately check for lockout status on page load
+        (function() {
+            const lockoutStatus = checkLockout();
+            if (lockoutStatus.locked) {
+                document.getElementById('message').textContent = `You are temporarily locked out. Try again in ${lockoutStatus.remainingTime} seconds.`;
+            } else {
+                const attemptsStored = localStorage.getItem("attempts");
+                if (attemptsStored) {
+                    incorrectAttempts = parseInt(attemptsStored, 10);
+                    const attemptsRemaining = MAX_ATTEMPTS - incorrectAttempts;
+                    document.getElementById('message').textContent = `You have ${attemptsRemaining} Attempts remaining.`;
+                }
+            }
+        })();
     </script>
 </body>
 </html>
